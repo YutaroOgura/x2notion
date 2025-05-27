@@ -18,5 +18,30 @@ python preprocess.py
 - 言語判定や翻訳処理の追加
 - AIプロンプト用のテキスト整形
 
+## APIサーバとしての利用
+
+```bash
+# Flask APIサーバ起動（ポート5000）
+python preprocess.py api
+```
+
+- POST /preprocess
+  - body: { "text": "処理したいテキスト", "max_length": 500 }
+  - response: { "chunks": ["..."], "original_length": 123, "chunk_count": 2 }
+
+### curl例
+```bash
+curl -X POST http://localhost:5000/preprocess \
+  -H "Content-Type: application/json" \
+  -d '{"text": "これはテスト投稿です。https://example.com #テスト @user", "max_length": 10}'
+```
+
+### n8n HTTP Requestノード例
+- Method: POST
+- URL: http://python:5000/preprocess
+- Body: JSON
+  - text: 送信テキスト
+  - max_length: 分割長（省略可）
+
 ## 注意事項
 - 本スクリプトは雛形です。用途に応じて自由に拡張してください 
