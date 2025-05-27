@@ -1,174 +1,378 @@
 {
-  "name": "AI分析・チャット応答フロー",
+  "name": "AI分析・チャット応答フロー（詳細版）",
   "nodes": [
     {
-      "name": "Webhook受信",
+      "name": "Slack イベント受信",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
       "position": [240, 300],
       "parameters": {
-        "path": "incoming-message",
+        "path": "slack-events",
         "httpMethod": "POST",
-        "responseMode": "lastNode",
+        "responseMode": "responseNode",
         "options": {
           "responseCode": 200
         }
       }
     },
     {
-      "name": "Notion DB検索",
+      "name": "メッセージ解析・検証",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [450, 300],
+      "parameters": {
+        "functionCode": "// Slackイベントの解析と検証\nconst body = $input.all()[0].json.body || $input.all()[0].json;\n\n// URL verification（Slack App設定時）\nif (body.type === 'url_verification') {\n  return [{ json: { challenge: body.challenge } }];\n}\n\n// イベントの検証\nif (!body.event || body.event.type !== 'message') {\n  return [];\n}\n\nconst event = body.event;\n\n// ボットメッセージやスレッドメッセージは無視\nif (event.bot_id || event.subtype || event.thread_ts) {\n  return [];\n}\n\n// AIへの言及がない場合は無視\nconst text = event.text || '';\nif (!text.includes('AI') && !text.includes('教えて') && !text.includes('？') && !text.includes('?')) {\n  return [];\n}\n\nconst processedMessage = {\n  user_id: event.user,\n  channel_id: event.channel,\n  message_text: text,\n  timestamp: event.ts,\n  original_event: event,\n  request_time: new Date().toISOString(),\n  platform: 'slack'\n};\n\nreturn [{ json: processedMessage }];"
+      }
+    },
+    {
+      "name": "キーワード抽出・前処理",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [680, 300],
+      "parameters": {
+        "functionCode": "// メッセージからキーワードを抽出し、検索クエリを最適化\nconst message = $input.all()[0].json;\nconst text = message.message_text;\n\n// 不要な文字列を除去\nlet cleanedText = text\n  .replace(/<@[A-Z0-9]+>/g, '') // メンション除去\n  .replace(/https?:\\/\\/[^\\s]+/g, '') // URL除去\n  .replace(/[\\r\\n]+/g, ' ') // 改行を空白に\n  .replace(/\\s+/g, ' ') // 複数空白を単一空白に\n  .trim();\n\n// 質問タイプの判定\nlet queryType = 'general';\nif (text.match(/要約|まとめ|サマリ/)) {\n  queryType = 'summary';\n} else if (text.match(/検索|探して|見つけて/)) {\n  queryType = 'search';\n} else if (text.match(/分析|傾向|パターン/)) {\n  queryType = 'analysis';\n} else if (text.match(/最新|今日|昨日|最近/)) {\n  queryType = 'recent';\n}\n\n// キーワード抽出（簡易版）\nconst keywords = cleanedText\n  .split(/\\s+/)\n  .filter(word => word.length > 2 && !['です', 'ます', 'ください', 'おねがい', 'できる', 'ある'].includes(word))\n  .slice(0, 5);\n\nconst processedQuery = {\n  ...message,\n  cleaned_text: cleanedText,\n  query_type: queryType,\n  keywords: keywords,\n  search_query: keywords.join(' ') || cleanedText\n};\n\nreturn [{ json: processedQuery }];"
+      }
+    },
+    {
+      "name": "Notion DB 関連投稿検索",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 1,
-      "position": [480, 300],
+      "position": [910, 300],
       "parameters": {
         "url": "https://api.notion.com/v1/databases/{{ $env.NOTION_DATABASE_ID }}/query",
         "method": "POST",
         "jsonParameters": true,
-        "bodyParametersJson": "{\n  \"filter\": {\n    \"property\": \"Name\",\n    \"rich_text\": { \n      \"contains\": \"{{ $json.body.text }}\" \n    }\n  },\n  \"sorts\": [{ \n    \"property\": \"CreatedAt\", \n    \"direction\": \"descending\" \n  }],\n  \"page_size\": 3\n}",
+        "bodyParametersJson": "{\n  \"filter\": {\n    \"or\": [\n      {\n        \"property\": \"投稿内容\",\n        \"title\": {\n          \"contains\": \"{{ $json.search_query }}\"\n        }\n      },\n      {\n        \"property\": \"ハッシュタグ\",\n        \"multi_select\": {\n          \"contains\": \"{{ $json.keywords[0] || '' }}\"\n        }\n      }\n    ]\n  },\n  \"sorts\": [\n    {\n      \"property\": \"投稿日付\",\n      \"direction\": \"descending\"\n    }\n  ],\n  \"page_size\": {{ $json.query_type === 'recent' ? 10 : ($json.query_type === 'summary' ? 20 : 5) }}\n}",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "notionApi",
-        "headerParametersJson": "{ \"Notion-Version\": \"2022-06-28\" }"
+        "headerParametersJson": "{ \n  \"Notion-Version\": \"2022-06-28\",\n  \"Authorization\": \"Bearer {{ $env.NOTION_TOKEN }}\"\n}"
       },
       "credentials": {
         "notionApi": {
-          "id": "={{ $env.NOTION_CREDENTIAL_ID }}",
+          "id": "{{ $env.NOTION_CREDENTIAL_ID }}",
           "name": "Notion API"
         }
       }
     },
     {
-      "name": "前処理（Python）",
+      "name": "Python データ前処理",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 1,
-      "position": [720, 300],
+      "position": [1140, 300],
       "parameters": {
-        "url": "http://python-api:5000/preprocess",
+        "url": "{{ $env.PYTHON_API_URL || 'http://python:5000' }}/preprocess",
         "method": "POST",
         "jsonParameters": true,
-        "bodyParametersJson": "{ \n  \"query\": \"{{ $json.body.text }}\", \n  \"records\": {{ JSON.stringify($json.results) }} \n}",
+        "bodyParametersJson": "{\n  \"query\": \"{{ $json.cleaned_text }}\",\n  \"query_type\": \"{{ $json.query_type }}\",\n  \"keywords\": {{ JSON.stringify($json.keywords) }},\n  \"records\": {{ JSON.stringify($('Notion DB 関連投稿検索').all()[0].json.results || []) }},\n  \"user_context\": {\n    \"user_id\": \"{{ $json.user_id }}\",\n    \"platform\": \"{{ $json.platform }}\",\n    \"timestamp\": \"{{ $json.request_time }}\"\n  }\n}",
         "options": {
-          "timeout": 30000
-        }
+          "timeout": 45000
+        },
+        "headerParametersJson": "{ \"Content-Type\": \"application/json\" }"
       }
     },
     {
-      "name": "OpenAI: Completion",
+      "name": "OpenAI GPT応答生成",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 1,
-      "position": [960, 300],
+      "position": [1370, 300],
       "parameters": {
         "url": "https://api.openai.com/v1/chat/completions",
         "method": "POST",
         "jsonParameters": true,
-        "bodyParametersJson": "{ \n  \"model\": \"gpt-3.5-turbo\",\n  \"messages\": [\n    { \"role\": \"system\", \"content\": \"あなたは役立つアシスタントです。\" },\n    { \"role\": \"user\", \"content\": \"{{ $json.cleaned_query }}\" }\n  ],\n  \"temperature\": 0.7\n}",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "openaiApi"
+        "bodyParametersJson": "{\n  \"model\": \"{{ $env.OPENAI_MODEL || 'gpt-3.5-turbo' }}\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"あなたは親切で知識豊富なアシスタントです。Twitter/X投稿の内容に基づいて、ユーザーの質問に丁寧に答えてください。以下のルールに従ってください：\\n1. 情報源として提供された投稿内容を参考にする\\n2. 不明な点は推測せず、わからないと正直に答える\\n3. 簡潔で分かりやすい回答を心がける\\n4. 必要に応じて投稿の日付や関連情報も含める\\n5. 日本語で回答する\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"質問: {{ $json.cleaned_text }}\\n\\n参考情報: {{ $json.processed_content || '関連する投稿が見つかりませんでした。' }}\\n\\n上記の参考情報に基づいて、質問に答えてください。\"\n    }\n  ],\n  \"temperature\": 0.7,\n  \"max_tokens\": 1000,\n  \"top_p\": 1,\n  \"frequency_penalty\": 0.3,\n  \"presence_penalty\": 0.1\n}",
+        "authentication": "predefinedCredentialType",\n        "nodeCredentialType": "openaiApi",\n        "headerParametersJson": "{ \n  \"Authorization\": \"Bearer {{ $env.OPENAI_API_KEY }}\",\n  \"Content-Type\": \"application/json\"\n}"
       },
       "credentials": {
         "openaiApi": {
-          "id": "={{ $env.OPENAI_CREDENTIAL_ID }}",
+          "id": "{{ $env.OPENAI_CREDENTIAL_ID }}",
           "name": "OpenAI API"
         }
       }
     },
     {
-      "name": "Slack: 回答返信",
-      "type": "n8n-nodes-base.slack",
+      "name": "応答メッセージ整形",
+      "type": "n8n-nodes-base.function",
       "typeVersion": 1,
-      "position": [1200, 300],
+      "position": [1600, 300],
       "parameters": {
-        "resource": "message",
-        "operation": "post",
-        "channel": "={{ $json.body.channel_id || $env.SLACK_CHANNEL }}",
-        "text": "{{ $json.choices[0].message.content }}"
+        "functionCode": "// AI応答の整形と送信準備\nconst aiResponse = $input.all()[0].json;\nconst originalQuery = $('メッセージ解析・検証').all()[0].json;\nconst notionResults = $('Notion DB 関連投稿検索').all()[0].json;\n\nconst response = aiResponse.choices?.[0]?.message?.content || 'すみません、応答を生成できませんでした。';\nconst tokensUsed = aiResponse.usage?.total_tokens || 0;\n\n// メッセージの整形\nlet formattedResponse = response;\n\n// 関連投稿がある場合は追加情報を付与\nconst relatedPosts = notionResults.results || [];\nif (relatedPosts.length > 0) {\n  formattedResponse += `\\n\\n💡 _${relatedPosts.length}件の関連投稿を参考にしました_`;\n}\n\n// レスポンス情報の作成\nconst responseData = {\n  channel_id: originalQuery.channel_id,\n  thread_ts: originalQuery.original_event.ts, // スレッドで返信\n  formatted_response: formattedResponse,\n  raw_response: response,\n  tokens_used: tokensUsed,\n  related_posts_count: relatedPosts.length,\n  response_time: new Date().toISOString(),\n  user_message: originalQuery.message_text,\n  platform: originalQuery.platform,\n  user_id: originalQuery.user_id\n};\n\nreturn [{ json: responseData }];"
+      }
+    },
+    {
+      "name": "Slack スレッド返信",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1830, 300],
+      "parameters": {
+        "url": "https://slack.com/api/chat.postMessage",
+        "method": "POST",
+        "jsonParameters": true,
+        "bodyParametersJson": "{\n  \"channel\": \"{{ $json.channel_id }}\",\n  \"thread_ts\": \"{{ $json.thread_ts }}\",\n  \"text\": \"{{ $json.formatted_response }}\",\n  \"blocks\": [\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"{{ $json.formatted_response }}\"\n      }\n    },\n    {\n      \"type\": \"context\",\n      \"elements\": [\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \":robot_face: AI応答 | :clock1: {{ $json.response_time }} | :chart_with_upwards_trend: {{ $json.tokens_used }} tokens\"\n        }\n      ]\n    }\n  ]\n}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "slackApi",
+        "headerParametersJson": "{ \n  \"Authorization\": \"Bearer {{ $env.SLACK_BOT_TOKEN }}\",\n  \"Content-Type\": \"application/json\"\n}"
       },
       "credentials": {
         "slackApi": {
-          "id": "={{ $env.SLACK_CREDENTIAL_ID }}",
+          "id": "{{ $env.SLACK_CREDENTIAL_ID }}",
           "name": "Slack API"
         }
       }
     },
     {
-      "name": "エラーCatch",
-      "type": "n8n-nodes-base.errorTrigger",
+      "name": "Laravel 応答履歴保存",
+      "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 1,
-      "position": [720, 500]
+      "position": [2060, 300],
+      "parameters": {
+        "url": "{{ $env.LARAVEL_BASE_URL }}/api/webhooks/ai-response",
+        "method": "POST",
+        "jsonParameters": true,
+        "bodyParametersJson": "{\n  \"user_message\": \"{{ $json.user_message }}\",\n  \"ai_response\": \"{{ $json.raw_response }}\",\n  \"source_platform\": \"{{ $json.platform }}\",\n  \"user_id\": \"{{ $json.user_id }}\",\n  \"tokens_used\": {{ $json.tokens_used }},\n  \"notion_query\": \"{{ $('キーワード抽出・前処理').all()[0].json.search_query }}\",\n  \"status\": \"completed\",\n  \"related_posts_count\": {{ $json.related_posts_count }},\n  \"response_time_ms\": {{ Date.now() - new Date($('メッセージ解析・検証').all()[0].json.request_time).getTime() }}\n}",
+        "headerParametersJson": "{ \"Content-Type\": \"application/json\" }"
+      }
     },
     {
-      "name": "Slackエラー通知",
-      "type": "n8n-nodes-base.slack",
+      "name": "LINE Webhook受信",
+      "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
-      "position": [960, 500],
+      "position": [240, 500],
       "parameters": {
-        "resource": "message",
-        "operation": "post",
-        "channel": "={{ $env.SLACK_CHANNEL }}",
-        "text": "AI応答フローでエラーが発生しました: {{ $json.message }}"
-      },
-      "credentials": {
-        "slackApi": {
-          "id": "={{ $env.SLACK_CREDENTIAL_ID }}",
-          "name": "Slack API"
-        }
+        "path": "line-webhook",
+        "httpMethod": "POST",
+        "responseMode": "responseNode"
+      }
+    },
+    {
+      "name": "LINE メッセージ処理",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [450, 500],
+      "parameters": {
+        "functionCode": "// LINE Webhookの処理\nconst body = $input.all()[0].json.body || $input.all()[0].json;\n\nif (!body.events || body.events.length === 0) {\n  return [];\n}\n\nconst event = body.events[0];\n\n// メッセージイベントのみ処理\nif (event.type !== 'message' || event.message.type !== 'text') {\n  return [];\n}\n\n// AIへの言及がない場合は無視\nconst text = event.message.text;\nif (!text.includes('AI') && !text.includes('教えて') && !text.includes('？') && !text.includes('?')) {\n  return [];\n}\n\nconst processedMessage = {\n  user_id: event.source.userId,\n  channel_id: event.source.userId, // LINEではユーザーIDをチャンネルIDとして使用\n  message_text: text,\n  timestamp: event.timestamp,\n  reply_token: event.replyToken,\n  original_event: event,\n  request_time: new Date().toISOString(),\n  platform: 'line'\n};\n\nreturn [{ json: processedMessage }];"
+      }
+    },
+    {
+      "name": "LINE 応答送信",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1830, 500],
+      "parameters": {
+        "url": "https://api.line.me/v2/bot/message/reply",
+        "method": "POST",
+        "jsonParameters": true,
+        "bodyParametersJson": "{\n  \"replyToken\": \"{{ $('LINE メッセージ処理').all()[0].json.reply_token }}\",\n  \"messages\": [\n    {\n      \"type\": \"text\",\n      \"text\": \"{{ $json.formatted_response }}\"\n    }\n  ]\n}",
+        "headerParametersJson": "{ \n  \"Authorization\": \"Bearer {{ $env.LINE_CHANNEL_ACCESS_TOKEN }}\",\n  \"Content-Type\": \"application/json\"\n}"
+      }
+    },
+    {
+      "name": "エラーハンドリング",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [1140, 700]
+    },
+    {
+      "name": "エラー詳細処理",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1370, 700],
+      "parameters": {
+        "functionCode": "// エラー情報の詳細化\nconst error = $input.all()[0].json;\nconst timestamp = new Date().toISOString();\n\nconst errorInfo = {\n  timestamp: timestamp,\n  workflow_name: 'AI分析・チャット応答フロー',\n  error_type: error.name || 'Unknown Error',\n  error_message: error.message || 'No message available',\n  error_stack: error.stack || '',\n  node_name: error.node?.name || 'Unknown Node',\n  execution_id: $workflow.id,\n  input_data: error.context?.input || null\n};\n\nconsole.error(`[${timestamp}] AI応答フローエラー:`, errorInfo);\n\nreturn [{ json: errorInfo }];"
+      }
+    },
+    {
+      "name": "Slack エラー通知",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1600, 700],
+      "parameters": {
+        "url": "{{ $env.SLACK_WEBHOOK_URL }}",
+        "method": "POST",
+        "jsonParameters": true,
+        "bodyParametersJson": "{\n  \"text\": \":warning: AI応答フローでエラーが発生しました\",\n  \"blocks\": [\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"*AI応答フローエラー*\\n:x: {{ $json.error_type }}\\n```{{ $json.error_message }}```\"\n      }\n    },\n    {\n      \"type\": \"section\",\n      \"fields\": [\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"*発生時刻:*\\n{{ $json.timestamp }}\"\n        },\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"*ノード:*\\n{{ $json.node_name }}\"\n        }\n      ]\n    }\n  ]\n}"
+      }
+    },
+    {
+      "name": "Laravel エラー通知",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1830, 700],
+      "parameters": {
+        "url": "{{ $env.LARAVEL_BASE_URL }}/api/webhooks/error",
+        "method": "POST",
+        "jsonParameters": true,
+        "bodyParametersJson": "{\n  \"error_type\": \"{{ $json.error_type }}\",\n  \"error_message\": \"{{ $json.error_message }}\",\n  \"source\": \"ai_answer_flow\",\n  \"timestamp\": \"{{ $json.timestamp }}\",\n  \"workflow_name\": \"{{ $json.workflow_name }}\",\n  \"node_name\": \"{{ $json.node_name }}\",\n  \"execution_id\": \"{{ $json.execution_id }}\"\n}"
       }
     }
   ],
   "connections": {
-    "Webhook受信": {
+    "Slack イベント受信": {
       "main": [
         [
           {
-            "node": "Notion DB検索",
+            "node": "メッセージ解析・検証",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Notion DB検索": {
+    "メッセージ解析・検証": {
       "main": [
         [
           {
-            "node": "前処理（Python）",
+            "node": "キーワード抽出・前処理",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "前処理（Python）": {
+    "キーワード抽出・前処理": {
       "main": [
         [
           {
-            "node": "OpenAI: Completion",
+            "node": "Notion DB 関連投稿検索",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "OpenAI: Completion": {
+    "Notion DB 関連投稿検索": {
       "main": [
         [
           {
-            "node": "Slack: 回答返信",
+            "node": "Python データ前処理",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "エラーCatch": {
+    "Python データ前処理": {
       "main": [
         [
           {
-            "node": "Slackエラー通知",
+            "node": "OpenAI GPT応答生成",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI GPT応答生成": {
+      "main": [
+        [
+          {
+            "node": "応答メッセージ整形",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "応答メッセージ整形": {
+      "main": [
+        [
+          {
+            "node": "Slack スレッド返信",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "LINE 応答送信",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack スレッド返信": {
+      "main": [
+        [
+          {
+            "node": "Laravel 応答履歴保存",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LINE Webhook受信": {
+      "main": [
+        [
+          {
+            "node": "LINE メッセージ処理",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LINE メッセージ処理": {
+      "main": [
+        [
+          {
+            "node": "キーワード抽出・前処理",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LINE 応答送信": {
+      "main": [
+        [
+          {
+            "node": "Laravel 応答履歴保存",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "エラーハンドリング": {
+      "main": [
+        [
+          {
+            "node": "エラー詳細処理",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "エラー詳細処理": {
+      "main": [
+        [
+          {
+            "node": "Slack エラー通知",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack エラー通知": {
+      "main": [
+        [
+          {
+            "node": "Laravel エラー通知",
             "type": "main",
             "index": 0
           }
         ]
       ]
     }
-  }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "1.0.0"
 } 

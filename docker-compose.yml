@@ -14,12 +14,11 @@ services:
     restart: unless-stopped
 
   laravel:
-    image: composer:2.2
+    image: php:8.2-cli
     working_dir: /app
     volumes:
       - ./laravel:/app
-    user: "${UID:-1000}:${GID:-1000}"
-    command: bash -c "./fix_permissions.sh && php -S 0.0.0.0:8000 -t public"
+    command: tail -f /dev/null
     ports:
       - "8000:8000"
     environment:

@@ -1,13 +1,13 @@
 {
-  "name": "X投稿取得→Notion保存フロー",
+  "name": "X投稿取得→Notion保存フロー（詳細版）",
   "nodes": [
     {
-      "name": "Cron",
+      "name": "スケジュール実行",
       "type": "n8n-nodes-base.cron",
       "typeVersion": 1,
       "position": [240, 300],
       "parameters": {
-        "cronExpression": "*/10 * * * *"
+        "cronExpression": "*/15 * * * *"
       }
     },
     {
@@ -20,77 +20,127 @@
         "method": "GET",
         "queryParametersUi": {
           "parameter": [
-            { "name": "max_results", "value": "20" },
-            { "name": "tweet.fields", "value": "id,text,created_at" }
+            { "name": "max_results", "value": "50" },
+            { "name": "tweet.fields", "value": "id,text,created_at,public_metrics,referenced_tweets,reply_settings,context_annotations" },
+            { "name": "expansions", "value": "attachments.media_keys,referenced_tweets.id" },
+            { "name": "media.fields", "value": "url,preview_image_url,type" },
+            { "name": "since_id", "value": "={{ $workflow.lastSuccessfulExecution ? $workflow.lastSuccessfulExecution.data.lastTweetId : '' }}" }
           ]
         },
         "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "twitterApi"
+        "nodeCredentialType": "twitterApi",
+        "headerParametersJson": "{ \"Authorization\": \"Bearer {{ $env.X_BEARER_TOKEN }}\" }"
       },
       "credentials": {
         "twitterApi": {
-          "id": "={{ $env.TWITTER_CREDENTIAL_ID }}",
+          "id": "{{ $env.TWITTER_CREDENTIAL_ID }}",
           "name": "Twitter API"
         }
       }
     },
     {
-      "name": "重複除外Function",
+      "name": "データ前処理・重複除外",
       "type": "n8n-nodes-base.function",
       "typeVersion": 1,
       "position": [680, 300],
       "parameters": {
-        "functionCode": "// 重複ID管理\nconst processed = global.get('processedIds') || [];\nitems = items.filter(item => {\n  const id = item.json.id;\n  if (processed.includes(id)) {\n    return false;\n  }\n  processed.push(id);\n  return true;\n});\n\nglobal.set('processedIds', processed);\nreturn items;"
+        "functionCode": "// データ前処理とバリデーション\nconst tweets = $input.all()[0].json.data || [];\nconst includes = $input.all()[0].json.includes || {};\nconst media = includes.media || [];\nconst referencedTweets = includes.tweets || [];\n\n// 重複ID管理（永続化）\nconst processed = $workflow.staticData.processedIds || [];\nconst newTweets = [];\n\nfor (const tweet of tweets) {\n  if (processed.includes(tweet.id)) {\n    continue;\n  }\n  \n  // ツイートデータの拡張\n  const processedTweet = {\n    id: tweet.id,\n    text: tweet.text,\n    created_at: tweet.created_at,\n    public_metrics: tweet.public_metrics || {},\n    reply_count: tweet.public_metrics?.reply_count || 0,\n    retweet_count: tweet.public_metrics?.retweet_count || 0,\n    like_count: tweet.public_metrics?.like_count || 0,\n    quote_count: tweet.public_metrics?.quote_count || 0,\n    url: `https://twitter.com/user/status/${tweet.id}`,\n    is_reply: tweet.referenced_tweets?.some(ref => ref.type === 'replied_to') || false,\n    is_retweet: tweet.referenced_tweets?.some(ref => ref.type === 'retweeted') || false,\n    is_quote: tweet.referenced_tweets?.some(ref => ref.type === 'quoted') || false,\n    media_urls: [],\n    reply_to_tweet_id: null,\n    hashtags: [],\n    mentions: [],\n    context_annotations: tweet.context_annotations || []\n  };\n  \n  // メディア情報の追加\n  if (tweet.attachments?.media_keys) {\n    processedTweet.media_urls = tweet.attachments.media_keys\n      .map(key => media.find(m => m.media_key === key))\n      .filter(m => m)\n      .map(m => ({ url: m.url || m.preview_image_url, type: m.type }));\n  }\n  \n  // リプライ先の特定\n  const replyRef = tweet.referenced_tweets?.find(ref => ref.type === 'replied_to');\n  if (replyRef) {\n    processedTweet.reply_to_tweet_id = replyRef.id;\n    const replyTweet = referencedTweets.find(t => t.id === replyRef.id);\n    if (replyTweet) {\n      processedTweet.reply_to_text = replyTweet.text;\n    }\n  }\n  \n  // ハッシュタグとメンションの抽出\n  const hashtagMatches = tweet.text.match(/#\\w+/g) || [];\n  const mentionMatches = tweet.text.match(/@\\w+/g) || [];\n  processedTweet.hashtags = hashtagMatches;\n  processedTweet.mentions = mentionMatches;\n  \n  newTweets.push(processedTweet);\n  processed.push(tweet.id);\n}\n\n// 処理済みIDを永続化（最新1000件のみ保持）\n$workflow.staticData.processedIds = processed.slice(-1000);\n\n// 最新ツイートIDを保存\nif (tweets.length > 0) {\n  $workflow.staticData.lastTweetId = tweets[0].id;\n}\n\nreturn newTweets.map(tweet => ({ json: tweet }));"
       }
     },
     {
-      "name": "Notion API: 投稿保存",
-      "type": "n8n-nodes-base.httpRequest",
+      "name": "メディアダウンロード",
+      "type": "n8n-nodes-base.function",
       "typeVersion": 1,
       "position": [910, 300],
+      "parameters": {
+        "functionCode": "// メディアファイルがある場合のダウンロード処理\nconst tweets = $input.all();\nconst tweetsWithMedia = [];\n\nfor (const item of tweets) {\n  const tweet = item.json;\n  \n  if (tweet.media_urls && tweet.media_urls.length > 0) {\n    // メディアファイルのダウンロードURLを生成\n    tweet.media_download_info = tweet.media_urls.map((media, index) => ({\n      url: media.url,\n      type: media.type,\n      filename: `${tweet.id}_${index}.${media.type === 'photo' ? 'jpg' : 'mp4'}`\n    }));\n  }\n  \n  tweetsWithMedia.push({ json: tweet });\n}\n\nreturn tweetsWithMedia;"
+      }
+    },
+    {
+      "name": "Notion DB保存",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1140, 300],
       "parameters": {
         "url": "https://api.notion.com/v1/pages",
         "method": "POST",
         "jsonParameters": true,
-        "bodyParametersJson": "{\n  \"parent\": { \"database_id\": \"{{ $env.NOTION_DATABASE_ID }}\" },\n  \"properties\": {\n    \"Name\": { \"title\": [{ \"text\": { \"content\": \"{{ $json.text }}\" } }] },\n    \"TweetID\": { \"rich_text\": [{ \"text\": { \"content\": \"{{ $json.id }}\" } }] },\n    \"CreatedAt\": { \"date\": { \"start\": \"{{ $json.created_at }}\" } }\n  }\n}",
+        "bodyParametersJson": "{\n  \"parent\": { \"database_id\": \"{{ $env.NOTION_DATABASE_ID }}\" },\n  \"properties\": {\n    \"投稿内容\": {\n      \"title\": [\n        {\n          \"text\": {\n            \"content\": \"{{ $json.text.substring(0, 100) }}{{ $json.text.length > 100 ? '...' : '' }}\"\n          }\n        }\n      ]\n    },\n    \"投稿日付\": {\n      \"date\": {\n        \"start\": \"{{ $json.created_at }}\"\n      }\n    },\n    \"X投稿ID\": {\n      \"rich_text\": [\n        {\n          \"text\": {\n            \"content\": \"{{ $json.id }}\"\n          }\n        }\n      ]\n    },\n    \"投稿URL\": {\n      \"url\": \"{{ $json.url }}\"\n    },\n    \"RT情報\": {\n      \"number\": {{ $json.retweet_count }}\n    },\n    \"いいね数\": {\n      \"number\": {{ $json.like_count }}\n    },\n    \"リプライ数\": {\n      \"number\": {{ $json.reply_count }}\n    },\n    \"引用数\": {\n      \"number\": {{ $json.quote_count }}\n    },\n    \"タイプ\": {\n      \"select\": {\n        \"name\": \"{{ $json.is_reply ? 'リプライ' : ($json.is_retweet ? 'リツイート' : ($json.is_quote ? '引用' : '通常投稿')) }}\"\n      }\n    },\n    \"ハッシュタグ\": {\n      \"multi_select\": [\n        {{ $json.hashtags.map(tag => `{\"name\": \"${tag}\"}`).join(', ') }}\n      ]\n    },\n    \"メンション\": {\n      \"rich_text\": [\n        {\n          \"text\": {\n            \"content\": \"{{ $json.mentions.join(', ') }}\"\n          }\n        }\n      ]\n    },\n    \"画像・メディア\": {\n      \"rich_text\": [\n        {\n          \"text\": {\n            \"content\": \"{{ $json.media_urls.length > 0 ? $json.media_urls.map(m => m.url).join('\\n') : '' }}\"\n          }\n        }\n      ]\n    },\n    \"取得日時\": {\n      \"date\": {\n        \"start\": \"{{ new Date().toISOString() }}\"\n      }\n    }\n  }\n}",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "notionApi",
-        "headerParametersJson": "{ \"Notion-Version\": \"2022-06-28\" }"
+        "headerParametersJson": "{ \n  \"Notion-Version\": \"2022-06-28\",\n  \"Authorization\": \"Bearer {{ $env.NOTION_TOKEN }}\"\n}"
       },
       "credentials": {
         "notionApi": {
-          "id": "={{ $env.NOTION_CREDENTIAL_ID }}",
+          "id": "{{ $env.NOTION_CREDENTIAL_ID }}",
           "name": "Notion API"
         }
       }
     },
     {
-      "name": "エラーCatch",
+      "name": "Laravel Webhook通知",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1370, 300],
+      "parameters": {
+        "url": "{{ $env.LARAVEL_BASE_URL }}/api/webhooks/notion-post",
+        "method": "POST",
+        "jsonParameters": true,
+        "bodyParametersJson": "{\n  \"post_id\": \"{{ $json.id }}\",\n  \"post_content\": \"{{ $json.text }}\",\n  \"post_date\": \"{{ $json.created_at }}\",\n  \"post_url\": \"{{ $json.url }}\",\n  \"metrics\": {\n    \"retweet_count\": {{ $json.retweet_count }},\n    \"like_count\": {{ $json.like_count }},\n    \"reply_count\": {{ $json.reply_count }},\n    \"quote_count\": {{ $json.quote_count }}\n  },\n  \"status\": \"saved\"\n}",
+        "headerParametersJson": "{ \"Content-Type\": \"application/json\" }"
+      }
+    },
+    {
+      "name": "実行統計ログ",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1600, 300],
+      "parameters": {
+        "functionCode": "// 実行統計の記録\nconst totalTweets = $input.all().length;\nconst timestamp = new Date().toISOString();\n\nconsole.log(`[${timestamp}] X→Notion同期完了: ${totalTweets}件の新規投稿を保存`);\n\n// 統計情報をワークフロー静的データに保存\nif (!$workflow.staticData.stats) {\n  $workflow.staticData.stats = {\n    totalProcessed: 0,\n    lastRun: null,\n    dailyStats: {}\n  };\n}\n\n$workflow.staticData.stats.totalProcessed += totalTweets;\n$workflow.staticData.stats.lastRun = timestamp;\n\nconst today = new Date().toISOString().split('T')[0];\nif (!$workflow.staticData.stats.dailyStats[today]) {\n  $workflow.staticData.stats.dailyStats[today] = 0;\n}\n$workflow.staticData.stats.dailyStats[today] += totalTweets;\n\nreturn [{ \n  json: { \n    processed: totalTweets, \n    timestamp: timestamp,\n    totalProcessed: $workflow.staticData.stats.totalProcessed,\n    todayProcessed: $workflow.staticData.stats.dailyStats[today]\n  } \n}];"
+      }
+    },
+    {
+      "name": "エラーハンドリング",
       "type": "n8n-nodes-base.errorTrigger",
       "typeVersion": 1,
       "position": [680, 500]
     },
     {
-      "name": "Slack通知",
-      "type": "n8n-nodes-base.slack",
+      "name": "エラー詳細ログ",
+      "type": "n8n-nodes-base.function",
       "typeVersion": 1,
       "position": [910, 500],
       "parameters": {
-        "resource": "message",
-        "operation": "post",
-        "channel": "={{ $env.SLACK_CHANNEL }}",
-        "text": "エラーが発生しました: {{ $json.message }}"
-      },
-      "credentials": {
-        "slackApi": {
-          "id": "={{ $env.SLACK_CREDENTIAL_ID }}",
-          "name": "Slack API"
-        }
+        "functionCode": "// エラー詳細の記録\nconst error = $input.all()[0].json;\nconst timestamp = new Date().toISOString();\n\nconst errorDetails = {\n  timestamp: timestamp,\n  error_type: error.name || 'Unknown Error',\n  error_message: error.message || 'No message',\n  error_stack: error.stack || '',\n  workflow_name: 'X投稿取得→Notion保存フロー',\n  node_name: error.node?.name || 'Unknown Node',\n  execution_id: $workflow.id\n};\n\nconsole.error(`[${timestamp}] エラー発生:`, errorDetails);\n\nreturn [{ json: errorDetails }];"
+      }
+    },
+    {
+      "name": "Slack エラー通知",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1140, 500],
+      "parameters": {
+        "url": "{{ $env.SLACK_WEBHOOK_URL }}",
+        "method": "POST",
+        "jsonParameters": true,
+        "bodyParametersJson": "{\n  \"text\": \":warning: X→Notion同期でエラーが発生しました\",\n  \"blocks\": [\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"*X→Notion同期エラー*\\n:x: {{ $json.error_type }}\\n```{{ $json.error_message }}```\"\n      }\n    },\n    {\n      \"type\": \"section\",\n      \"fields\": [\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"*発生時刻:*\\n{{ $json.timestamp }}\"\n        },\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"*ノード:*\\n{{ $json.node_name }}\"\n        }\n      ]\n    }\n  ]\n}"
+      }
+    },
+    {
+      "name": "Laravel エラー通知",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1370, 500],
+      "parameters": {
+        "url": "{{ $env.LARAVEL_BASE_URL }}/api/webhooks/error",
+        "method": "POST",
+        "jsonParameters": true,
+        "bodyParametersJson": "{\n  \"error_type\": \"{{ $json.error_type }}\",\n  \"error_message\": \"{{ $json.error_message }}\",\n  \"source\": \"x_fetch_to_notion\",\n  \"timestamp\": \"{{ $json.timestamp }}\",\n  \"workflow_name\": \"{{ $json.workflow_name }}\",\n  \"node_name\": \"{{ $json.node_name }}\",\n  \"execution_id\": \"{{ $json.execution_id }}\"\n}"
       }
     }
   ],
   "connections": {
-    "Cron": {
+    "スケジュール実行": {
       "main": [
         [
           {
@@ -105,34 +155,98 @@
       "main": [
         [
           {
-            "node": "重複除外Function",
+            "node": "データ前処理・重複除外",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "重複除外Function": {
+    "データ前処理・重複除外": {
       "main": [
         [
           {
-            "node": "Notion API: 投稿保存",
+            "node": "メディアダウンロード",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "エラーCatch": {
+    "メディアダウンロード": {
       "main": [
         [
           {
-            "node": "Slack通知",
+            "node": "Notion DB保存",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notion DB保存": {
+      "main": [
+        [
+          {
+            "node": "Laravel Webhook通知",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Laravel Webhook通知": {
+      "main": [
+        [
+          {
+            "node": "実行統計ログ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "エラーハンドリング": {
+      "main": [
+        [
+          {
+            "node": "エラー詳細ログ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "エラー詳細ログ": {
+      "main": [
+        [
+          {
+            "node": "Slack エラー通知",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack エラー通知": {
+      "main": [
+        [
+          {
+            "node": "Laravel エラー通知",
             "type": "main",
             "index": 0
           }
         ]
       ]
     }
-  }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "1.0.0"
 } 
