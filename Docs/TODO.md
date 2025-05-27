@@ -1,18 +1,18 @@
 # TODOリスト（x2notionプロジェクト）
 
 ## 1. n8nフロー具体化
-- [ ] X→Notion保存フローの詳細設計・実装
-  - [ ] X APIリクエスト例・認証設定
-  - [ ] 取得済みID管理・重複排除ロジック
-  - [ ] Notion APIノード設定
-  - [ ] エラー時のSlack通知ノード
-- [ ] AI応答フローの詳細設計・実装
-  - [ ] Slack/LINE受信ノード設定
-  - [ ] Notion DB検索ノード
-  - [ ] Python前処理ノード連携
-  - [ ] AI APIノード（OpenAI等）
-  - [ ] 応答メッセージ送信ノード
-- [ ] 監視・エラー通知フローの設計・実装
+- [x] X→Notion保存フローの詳細設計・実装
+  - [x] X APIリクエスト例・認証設定
+  - [x] 取得済みID管理・重複排除ロジック
+  - [x] Notion APIノード設定
+  - [x] エラー時のSlack通知ノード
+- [x] AI応答フローの詳細設計・実装
+  - [x] Slack/LINE受信ノード設定
+  - [x] Notion DB検索ノード
+  - [x] Python前処理ノード連携
+  - [x] AI APIノード（OpenAI等）
+  - [x] 応答メッセージ送信ノード
+- [x] 監視・エラー通知フローの設計・実装
 
 ## 2. Python補助スクリプト
 - [ ] preprocess.pyのAPI化（Flask等で /preprocess エンドポイント実装）

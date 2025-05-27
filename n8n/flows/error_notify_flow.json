@@ -1,15 +1,42 @@
 {
-  "name": "エラー通知フロー（雛形）",
+  "name": "共通エラー通知フロー",
   "nodes": [
     {
-      "name": "エラーCatchノード",
-      "type": "errorTrigger",
-      "notes": "各フローのエラー発生時にトリガー"
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
     },
     {
-      "name": "Slack通知ノード",
-      "type": "slack",
-      "notes": "特定チャネルにエラー内容を通知"
+      "name": "Slack通知",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 1,
+      "position": [480, 300],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": "={{ $env.SLACK_CHANNEL }}",
+        "text": "{{ $json.workflow }} フローでエラーが発生しました: {{ $json.error.message }}"
+      },
+      "credentials": {
+        "slackApi": {
+          "id": "={{ $env.SLACK_CREDENTIAL_ID }}",
+          "name": "Slack API"
+        }
+      }
     }
-  ]
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Slack通知",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
 } 
