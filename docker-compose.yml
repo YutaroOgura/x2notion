@@ -1,0 +1,43 @@
+version: '3.8'
+services:
+  n8n:
+    image: n8nio/n8n
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD}
+      - N8N_HOST=${N8N_HOST}
+      - N8N_PORT=${N8N_PORT}
+    volumes:
+      - ./n8n:/home/node/.n8n
+    restart: unless-stopped
+
+  laravel:
+    image: composer:2.2
+    working_dir: /app
+    volumes:
+      - ./laravel:/app
+    command: bash -c "composer install && php -S 0.0.0.0:8000 -t public"
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_KEY=${APP_KEY}
+      - APP_ENV=${APP_ENV}
+      - APP_DEBUG=${APP_DEBUG}
+      - APP_URL=${APP_URL}
+    restart: unless-stopped
+
+  python:
+    image: python:3.10
+    working_dir: /app
+    volumes:
+      - ./python:/app
+    command: tail -f /dev/null
+    environment:
+      - PYTHONPATH=${PYTHONPATH}
+    restart: unless-stopped
+
+networks:
+  default:
+    driver: bridge 

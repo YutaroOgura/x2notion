@@ -1,0 +1,15 @@
+{
+  "name": "エラー通知フロー（雛形）",
+  "nodes": [
+    {
+      "name": "エラーCatchノード",
+      "type": "errorTrigger",
+      "notes": "各フローのエラー発生時にトリガー"
+    },
+    {
+      "name": "Slack通知ノード",
+      "type": "slack",
+      "notes": "特定チャネルにエラー内容を通知"
+    }
+  ]
+} 

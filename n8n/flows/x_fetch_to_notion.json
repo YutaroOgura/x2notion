@@ -1,0 +1,30 @@
+{
+  "name": "X投稿取得→Notion保存フロー（雛形）",
+  "nodes": [
+    {
+      "name": "Cron Trigger",
+      "type": "cron",
+      "notes": "定期実行トリガー（例：10分毎）"
+    },
+    {
+      "name": "X API: ユーザタイムライン取得",
+      "type": "httpRequest",
+      "notes": "指定ユーザの新規投稿を取得"
+    },
+    {
+      "name": "データ整形",
+      "type": "function",
+      "notes": "取得データの整形・重複除外"
+    },
+    {
+      "name": "Notion API: 投稿保存",
+      "type": "httpRequest",
+      "notes": "新規投稿のみNotion DBに追加"
+    },
+    {
+      "name": "エラー通知",
+      "type": "slack",
+      "notes": "エラー時はSlackの特定チャネルに通知"
+    }
+  ]
+} 

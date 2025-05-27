@@ -1,0 +1,35 @@
+{
+  "name": "AI分析・チャット応答フロー（雛形）",
+  "nodes": [
+    {
+      "name": "Slack/LINE Webhook Trigger",
+      "type": "webhook",
+      "notes": "SlackまたはLINEからのメッセージ受信トリガー"
+    },
+    {
+      "name": "Notion API: 投稿検索",
+      "type": "httpRequest",
+      "notes": "関連するX投稿をNotion DBから検索"
+    },
+    {
+      "name": "前処理（Python）",
+      "type": "python",
+      "notes": "長文分割や不要情報除去など（必要に応じて）"
+    },
+    {
+      "name": "OpenAI API: 要約・分析",
+      "type": "httpRequest",
+      "notes": "AIモデルで要約・分析"
+    },
+    {
+      "name": "Slack/LINE: 回答返信",
+      "type": "slack/line",
+      "notes": "AIの回答をユーザに返信"
+    },
+    {
+      "name": "エラー通知",
+      "type": "slack",
+      "notes": "エラー時はSlackの特定チャネルに通知"
+    }
+  ]
+} 
