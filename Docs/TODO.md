@@ -15,9 +15,9 @@
 - [x] 監視・エラー通知フローの設計・実装
 
 ## 2. Python補助スクリプト
-- [ ] preprocess.pyのAPI化（Flask等で /preprocess エンドポイント実装）
-- [ ] n8nからの呼び出し例作成
-- [ ] 前処理ロジックの拡張（長文分割・不要情報除去等）
+- [x] preprocess.pyのAPI化（Flask等で /preprocess エンドポイント実装）
+- [x] n8nからの呼び出し例作成
+- [x] 前処理ロジックの拡張（長文分割・不要情報除去等）
 
 ## 3. Laravel管理UI/API
 - [ ] Notion DB連携APIの雛形実装
