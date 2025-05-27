@@ -1,30 +1,138 @@
 {
-  "name": "X投稿取得→Notion保存フロー（雛形）",
+  "name": "X投稿取得→Notion保存フロー",
   "nodes": [
     {
-      "name": "Cron Trigger",
-      "type": "cron",
-      "notes": "定期実行トリガー（例：10分毎）"
+      "name": "Cron",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "parameters": {
+        "cronExpression": "*/10 * * * *"
+      }
     },
     {
       "name": "X API: ユーザタイムライン取得",
-      "type": "httpRequest",
-      "notes": "指定ユーザの新規投稿を取得"
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [450, 300],
+      "parameters": {
+        "url": "https://api.twitter.com/2/users/{{ $env.X_USER_ID }}/tweets",
+        "method": "GET",
+        "queryParametersUi": {
+          "parameter": [
+            { "name": "max_results", "value": "20" },
+            { "name": "tweet.fields", "value": "id,text,created_at" }
+          ]
+        },
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "twitterApi"
+      },
+      "credentials": {
+        "twitterApi": {
+          "id": "={{ $env.TWITTER_CREDENTIAL_ID }}",
+          "name": "Twitter API"
+        }
+      }
     },
     {
-      "name": "データ整形",
-      "type": "function",
-      "notes": "取得データの整形・重複除外"
+      "name": "重複除外Function",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [680, 300],
+      "parameters": {
+        "functionCode": "// 重複ID管理\nconst processed = global.get('processedIds') || [];\nitems = items.filter(item => {\n  const id = item.json.id;\n  if (processed.includes(id)) {\n    return false;\n  }\n  processed.push(id);\n  return true;\n});\n\nglobal.set('processedIds', processed);\nreturn items;"
+      }
     },
     {
       "name": "Notion API: 投稿保存",
-      "type": "httpRequest",
-      "notes": "新規投稿のみNotion DBに追加"
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [910, 300],
+      "parameters": {
+        "url": "https://api.notion.com/v1/pages",
+        "method": "POST",
+        "jsonParameters": true,
+        "bodyParametersJson": "{\n  \"parent\": { \"database_id\": \"{{ $env.NOTION_DATABASE_ID }}\" },\n  \"properties\": {\n    \"Name\": { \"title\": [{ \"text\": { \"content\": \"{{ $json.text }}\" } }] },\n    \"TweetID\": { \"rich_text\": [{ \"text\": { \"content\": \"{{ $json.id }}\" } }] },\n    \"CreatedAt\": { \"date\": { \"start\": \"{{ $json.created_at }}\" } }\n  }\n}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "notionApi",
+        "headerParametersJson": "{ \"Notion-Version\": \"2022-06-28\" }"
+      },
+      "credentials": {
+        "notionApi": {
+          "id": "={{ $env.NOTION_CREDENTIAL_ID }}",
+          "name": "Notion API"
+        }
+      }
     },
     {
-      "name": "エラー通知",
-      "type": "slack",
-      "notes": "エラー時はSlackの特定チャネルに通知"
+      "name": "エラーCatch",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [680, 500]
+    },
+    {
+      "name": "Slack通知",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 1,
+      "position": [910, 500],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": "={{ $env.SLACK_CHANNEL }}",
+        "text": "エラーが発生しました: {{ $json.message }}"
+      },
+      "credentials": {
+        "slackApi": {
+          "id": "={{ $env.SLACK_CREDENTIAL_ID }}",
+          "name": "Slack API"
+        }
+      }
     }
-  ]
+  ],
+  "connections": {
+    "Cron": {
+      "main": [
+        [
+          {
+            "node": "X API: ユーザタイムライン取得",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "X API: ユーザタイムライン取得": {
+      "main": [
+        [
+          {
+            "node": "重複除外Function",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "重複除外Function": {
+      "main": [
+        [
+          {
+            "node": "Notion API: 投稿保存",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "エラーCatch": {
+      "main": [
+        [
+          {
+            "node": "Slack通知",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
 } 
