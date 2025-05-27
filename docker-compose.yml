@@ -18,7 +18,8 @@ services:
     working_dir: /app
     volumes:
       - ./laravel:/app
-    command: bash -c "composer install && php -S 0.0.0.0:8000 -t public"
+    user: "${UID:-1000}:${GID:-1000}"
+    command: bash -c "./fix_permissions.sh && php -S 0.0.0.0:8000 -t public"
     ports:
       - "8000:8000"
     environment:
