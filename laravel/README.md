@@ -1,29 +1,99 @@
-# Laravel管理UI/API概要
+<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
 
-## 目的
-- X投稿・AI応答履歴の閲覧や検索、n8n/Python連携用のAPI/Webhookを提供
+<p align="center">
+<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
+<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
+<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
+<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
+</p>
 
-## セットアップ手順（初回）
+## About Laravel
+
+Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+
+- [Simple, fast routing engine](https://laravel.com/docs/routing).
+- [Powerful dependency injection container](https://laravel.com/docs/container).
+- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
+- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
+- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
+- [Robust background job processing](https://laravel.com/docs/queues).
+- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+
+Laravel is accessible, powerful, and provides tools required for large, robust applications.
+
+## Learning Laravel
+
+Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+
+You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+
+If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+
+## Laravel Sponsors
+
+We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+
+### Premium Partners
+
+- **[Vehikl](https://vehikl.com)**
+- **[Tighten Co.](https://tighten.co)**
+- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
+- **[64 Robots](https://64robots.com)**
+- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
+- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
+- **[Redberry](https://redberry.international/laravel-development)**
+- **[Active Logic](https://activelogic.com)**
+
+## Contributing
+
+Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+
+## Code of Conduct
+
+In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+
+## Security Vulnerabilities
+
+If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+
+## License
+
+The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+
+# Laravel サービス運用手順（MVP）
+
+## セットアップ手順
+
+1. コンテナ起動
 ```bash
-cd laravel
-composer install
-cp .env.example .env
-php artisan key:generate
-# 必要に応じてDB等の設定を編集
-php artisan migrate
-php artisan serve
+docker compose up -d laravel
 ```
 
-## 想定機能（v1.0）
-- X投稿一覧・検索画面（Notion DBから取得）
-- AI応答履歴の一覧・検索
-- n8n/Pythonから呼び出せるWebhook/API
+2. Laravelプロジェクト初期化（初回のみ）
+```bash
+docker compose exec laravel bash
+composer create-project --prefer-dist laravel/laravel .
+cp .env.example .env
+php artisan key:generate
+```
 
-## 今後の拡張方針
-- 投稿・応答データのタグ付けやメモ機能
-- 管理用の簡易ダッシュボード
-- 認証・権限管理の強化
+3. パーミッション修正（必要に応じて）
+```bash
+bash fix_permissions.sh
+```
+
+4. Webサーバ起動（docker-compose.ymlのcommandで自動起動）
+- http://localhost:8000 でLaravelトップが表示されればOK
+
+## パーミッションエラー対策
+- `storage/` や `bootstrap/cache` の権限エラーが出る場合は `fix_permissions.sh` を実行
+- docker-compose.ymlの`user`指定も検討
+
+## 主要ファイル
+- `fix_permissions.sh` … 権限修正スクリプト
+- `app/Http/Controllers/NotionController.php` … Notion連携API雛形
+- `routes/api.php` … APIルート定義
 
 ## 注意事項
-- Notionアカウント・DBは固定。設定は.envで管理
-- 本ディレクトリは雛形です。必要に応じてartisanコマンド等で構成を拡張してください 
+- Laravelのセットアップ・運用は必ずコンテナ内で行うこと
+- ホスト側でのcomposerやartisanコマンド実行は非推奨
