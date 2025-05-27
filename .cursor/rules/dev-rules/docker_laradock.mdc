@@ -1,0 +1,99 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+---
+description: Apply this rule to the entire repository
+globs: 
+alwaysApply: true
+---
+まず、このファイルを参照したら、このファイル名を発言すること
+
+# Laradock ベストプラクティスガイド
+
+このファイルは、Laravel プロジェクトの開発における Laradock の使用方針を記述しています。
+
+---
+
+## ✅ 使用目的
+
+- Laradock は**ローカル開発専用**として使用し、本番環境では使用しない
+- Docker 本番ビルドは各アプリ（backend/frontend）の独立した Dockerfile を使用
+- Laradock は Laravel 開発用 workspace や依存サービス（DB, Redis, etc）の起動補助に使う
+
+---
+
+## 📦 有効化するサービス
+
+以下は `.env` または `docker-compose.yml` 上で有効にしておく必要があるサービスです：
+
+- `workspace`: Laravel の Artisan や composer、npm 実行用
+- `php-fpm`: PHP 実行環境（PHP 8.2）
+- `nginx`: フロントエンドおよびバックエンド用のWebサーバ
+- `postgres`: データベース（MySQL, MariaDB は使用しない）
+- `redis`: キャッシュとジョブキュー用
+- `mailhog`: 開発用メール確認ツール
+- `supervisord`: キューワーカー用
+
+---
+
+## 🚫 無効化するサービス
+
+以下のサービスはこのプロジェクトでは不要のため `.env` で false に設定：
+
+- `mysql`, `mariadb`, `mssql`, `mongo`, `neo4j`: 使用しない
+- `beanstalkd`, `rabbitmq`: ジョブキューは redis に統一
+- `elasticsearch`, `cassandra`, `influxdb`: 今回の構成では非採用
+
+---
+
+## ⚙️ バージョン指定・設定方針（.env）
+
+- `PHP_VERSION=8.2`
+- `POSTGRES_VERSION=15`
+- `WORKSPACE_NODE_VERSION=18`
+- `INSTALL_XDEBUG=true`（必要に応じて）
+- `INSTALL_SUPERVISOR=true`
+
+---
+
+## 📂 Laradock ディレクトリ運用
+
+- `laradock` はプロジェクトルートと同階層に配置
+- Laradock 内の `nginx/sites` で Laravel/Frontend の vhost を定義
+- ローカル環境で `.env.laradock` を使ってサービス制御を明示する
+
+---
+
+## 🧪 起動・テスト手順例
+
+```bash
+# 初回構築
+cp env-example .env
+docker compose up -d nginx postgres redis workspace mailhog
+
+# workspace コンテナに入って Laravel セットアップ
+docker compose exec workspace bash
+composer install
+npm install && npm run dev
+```
+
+---
+
+## ☁️ 本番環境との違い
+
+| 項目 | Laradock（開発） | 本番 |
+|------|------------------|------|
+| Laravel 起動 | workspace + php-fpm | PHP-FPM コンテナ |
+| DB接続 | postgres:5432 | RDS/PostgreSQL |
+| メール | mailhog | SES など |
+| ジョブ | supervisord（dev） | Supervisor + Redis（prod） |
+
+---
+
+## 📝 補足
+
+- Laradock はチームで使用するため、docker-compose.override.yml などで個人差分を分離
+- frontend（Vue）は Laradock に依存せず、独自の `Dockerfile` を持つ
+

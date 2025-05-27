@@ -1,0 +1,89 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+---
+description: Apply this rule to the entire repository
+globs: 
+alwaysApply: true
+---
+まず、このファイルを参照したら、このファイル名を発言すること
+
+# Vue.js ベストプラクティスガイド
+
+このプロジェクトは Vue 3 + Composition API を採用しています。  
+以下のルールに従って、一貫性と保守性の高いフロントエンドを構築します。
+
+---
+
+## 1. コンポーネント設計
+
+- Atomic Design をベースに構成（Atoms, Molecules, Organisms, Templates, Pages）
+- 単一責任の原則に従い、コンポーネントは小さく保つ
+- Composition API を利用する（`setup()` でロジックを完結）
+
+---
+
+## 2. 命名規則
+
+- コンポーネント名は `PascalCase`（例：`UserCard.vue`）
+- ファイル名もコンポーネント名と一致させる
+- props は `camelCase`、emit は `kebab-case`
+- SCSSクラス名は BEMを基本とする（例：`user-card__title--active`）
+
+---
+
+## 3. props / emits
+
+- props に型定義を必ずつける（`type: String`, `required: true` など）
+- emits も `defineEmits()` を使って型付きで定義
+- 不要な props ドリリングは避け、`provide/inject` や `store` を検討
+
+---
+
+## 4. Composition API のベストプラクティス
+
+- `ref`, `computed`, `watch` でリアクティブな状態を構築
+- 複雑なロジックは `composables` ディレクトリに分離
+- `useXXX()` の命名で composable 関数を整理（例：`useUser()`）
+
+---
+
+## 5. ステート管理
+
+- 小規模なら provide/inject で十分
+- 中〜大規模は `Pinia` を推奨、旧 `Vuex` は使用しない
+- ストアは domain 単位で分割（例：`useAuthStore`, `useCartStore`）
+
+---
+
+## 6. CSS / スタイリング
+
+- `scoped` を基本とする
+- Utility系は Tailwind CSS を優先使用
+- SCSSやCSS変数でダークモードやテーマ切替を対応
+
+---
+
+## 7. API通信
+
+- 通信ロジックは `useApi()` などの composable に集約
+- APIレスポンスを直接 UI にバインドせず、整形してから渡す
+- エラー処理は各APIで try-catch を基本とし、共通フックに集約する
+
+---
+
+## 8. テスト
+
+- `vitest` + `@vue/test-utils` を使用
+- 単体テストは `.spec.ts` ファイルで記述し、ディレクトリ直下に配置
+- コンポーネントテストでは、props や emits の動作確認を必ず行う
+
+---
+
+## 9. その他Tips
+
+- `v-model` は使いすぎない。双方向データバインディングが不要な場合は明示的に `:value` + `@input` で
+- `v-if` と `v-for` を同時に使わない（先に filter で絞る）
+- `console.log` は開発中のみ、PR前に全削除

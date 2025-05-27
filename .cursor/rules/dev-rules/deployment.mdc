@@ -1,0 +1,70 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+---
+description: Apply this rule to the entire repository
+globs: 
+alwaysApply: true
+---
+まず、このファイルを参照したら、このファイル名を発言すること
+
+# デプロイ・CI/CD ガイド（ECS + GitHub Actions）
+
+このプロジェクトは AWS ECS（Fargate）上にデプロイされ、GitHub Actions による CI/CD を構成しています。
+
+---
+
+## 🚀 デプロイ先構成
+
+- バックエンド：ECS Fargate（Laravel + PHP-FPM + Supervisor）
+- フロントエンド：ECS Fargate（Nginx + ビルド済みVue）
+- その他：ALB, CloudWatch Logs, Secrets Manager
+
+---
+
+## 🔁 CI/CD フロー（GitHub Actions）
+
+### フロー概要
+
+1. push or PR → GitHub Actions 発火
+2. Dockerイメージをビルド & ECR にプッシュ
+3. ECS タスク定義を更新し、新バージョンでデプロイ
+
+---
+
+### ディレクトリ構成（例）
+
+- `.github/workflows/backend.yml`
+- `.github/workflows/frontend.yml`
+
+---
+
+### backend.yml の例
+
+```yaml
+name: Deploy Laravel
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build & Push Docker image
+        ...
+      - name: Update ECS service
+        ...
+```
+
+---
+
+## 🧠 補足
+
+- Laravel の環境変数は AWS Secrets Manager で管理
+- フロントは S3 + CloudFront または ECS 配信のいずれか選択可能
+- Blue/Green デプロイは必要に応じて CodeDeploy を併用

@@ -1,0 +1,50 @@
+# ジョブキュー設計ガイド（Redis + Laravel Queue）
+
+このプロジェクトでは Laravel のジョブキュー機能を使用し、Redis をバックエンドに採用しています。
+
+---
+
+## 🎯 使用技術
+
+- キュードライバ：Redis
+- ジョブ管理：Laravel Queue
+- プロセス監視：Supervisor（開発では Laradock 経由）
+
+---
+
+## 📁 ディレクトリ構成例
+
+- `app/Jobs/`：全てのジョブクラスを定義
+- `app/Listeners/`：イベントに応じた非同期処理
+- `config/queue.php`：設定は redis に統一
+
+---
+
+## 🔁 リトライ戦略
+
+- 各ジョブは `tries`, `timeout`, `backoff` を明示的に指定
+- 失敗したジョブは `failed_jobs` テーブルで記録、必要に応じて `retry` コマンドで再送
+- 永続的な失敗（例：存在しないユーザなど）は retry しない設計にする
+
+---
+
+## ⚙ Supervisor 設定例
+
+```
+[program:laravel-worker]
+process_name=%(program_name)s_%(process_num)02d
+command=php /var/www/artisan queue:work redis --sleep=3 --tries=3 --timeout=90
+autostart=true
+autorestart=true
+user=laradock
+numprocs=1
+redirect_stderr=true
+stdout_logfile=/var/www/storage/logs/worker.log
+```
+
+---
+
+## 📌 その他ポリシー
+
+- 軽量処理は sync or dispatchNow()、重い処理は dispatch()
+- ジョブの idempotent（冪等性）を意識する

@@ -1,0 +1,51 @@
+{
+  "name": "n8n-project-background-agent",
+  "description": "Background Agent environment for n8n workflow project",
+  "setup_commands": [
+    "echo '🚀 Background Agent Environment Setup'",
+    "echo '=================================='",
+    "echo 'System Information:'",
+    "uname -a",
+    "echo 'Node.js Version:'",
+    "node --version",
+    "echo 'NPM Version:'",
+    "npm --version",
+    "echo 'Current Directory:'",
+    "pwd",
+    "echo 'Project Files:'",
+    "ls -la",
+    "echo 'Package.json Contents:'",
+    "cat package.json || echo 'package.json not found'",
+    "echo 'Installing Dependencies:'",
+    "npm install --verbose",
+    "echo 'Setup Verification:'",
+    "npm list --depth=0 || echo 'Dependencies listed'",
+    "echo '✅ Environment setup completed successfully'"
+  ],
+  "environment_variables": {
+    "NODE_ENV": "development",
+    "PROJECT_TYPE": "n8n-workflows",
+    "PROJECT_NAME": "n8n-project",
+    "AGENT_MODE": "background",
+    "LOG_LEVEL": "info",
+    "PATH": "/usr/local/bin:/usr/bin:/bin"
+  },
+  "required_tools": [
+    "node",
+    "npm",
+    "git",
+    "curl",
+    "bash",
+    "tree"
+  ],
+  "scripts": {
+    "install": "npm install",
+    "start": "npm start",
+    "dev": "npm run dev",
+    "build": "npm run build",
+    "test": "npm test"
+  },
+  "timeout": 300,
+  "install": "npm install",
+  "start": "npm start"
+}

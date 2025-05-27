@@ -1,0 +1,120 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+---
+description: Apply this rule to the entire repository
+globs: 
+alwaysApply: true
+---
+まず、このファイルを参照したら、このファイル名を発言すること
+
+# Laravel ベストプラクティスガイド
+
+このプロジェクトは Laravel フレームワークを使用しています。
+以下のガイドラインに従って、コードの品質と一貫性を保ちます。
+
+---
+
+## 1. ルーティング
+
+- 基本的には `routes/web.php` と `routes/api.php` を使い分ける。
+- API ルートは必ず `Route::prefix('api')` を利用し、RESTful に設計する。
+- 名前付きルートを使い、URL直書きを避ける。
+
+---
+
+## 2. コントローラー
+
+- Fat Controller を避け、**処理は Service クラスへ移譲**する。
+- メソッドは `index`, `store`, `show`, `update`, `destroy` など RESTful に従う。
+- 複雑なロジックは Controller に書かない。
+
+---
+
+## 3. モデル（Eloquent）
+
+- ビジネスロジックは基本的に Service に記述し、Model はデータアクセス層に留める。
+- スコープ（`scopeActive()` など）を積極的に活用する。
+- リレーションは適切に定義し、`with()` を使用して N+1 問題を回避する。
+
+---
+
+## 4. サービス層
+
+- 複雑なロジックは `App\Services` 以下に切り出して、テスト可能にする。
+- 依存注入を利用し、疎結合を意識する。
+- サービスクラスはユースケースベースで設計する（例: `UserRegistrationService`）
+
+---
+
+## 5. バリデーション
+
+- バリデーションは可能な限り FormRequest クラスに記述する。
+- `rules()` メソッド内で簡潔に定義し、共通ルールは `Rules/` に切り出す。
+
+---
+
+## 6. エラーハンドリング
+
+- 例外は `App\Exceptions` 配下にカスタム定義する。
+- 独自のビジネス例外は `BusinessException` を基底にして作成。
+- すべての例外は `render()` または `report()` にて処理する。
+
+---
+
+## 7. 命名規則
+
+- クラス名：`PascalCase`（例: `UserController`, `UserService`）
+- メソッド名：`camelCase`（例: `getUserProfile()`）
+- 変数・プロパティ名：`camelCase`
+- Blade ファイル：スネークケース（例: `user_profile.blade.php`）
+
+---
+
+## 8. Blade テンプレート
+
+- ロジックはできるだけ Blade に書かず、Controller または ViewModel に渡す。
+- `@component`, `@slot` を使って再利用性の高い UI を構築する。
+
+---
+
+## 9. テスト
+
+- `tests/Feature`：ルーティングやコントローラー単位の挙動確認。
+- `tests/Unit`：Service やロジック層の細かい確認。
+- Laravel の `RefreshDatabase` を使い、テスト間で状態が混在しないようにする。
+
+---
+
+## 10. その他
+
+- .env の値に直接アクセスせず、`config()` 経由で取得する。
+- ビジネスロジックや条件分岐は極力 Controller に書かない。
+- Factory や Seeder は意味のあるデータを使い、他人が見ても分かるようにする。
+
+---
+
+## 11. API 設計指針
+
+- API は RESTful に設計し、エンドポイントは `api.php` に定義する。
+- エンドポイントは `/api/v1/...` のようにバージョニングを付ける。
+- JSON レスポンスを標準とし、Laravel の `Resource` クラスを使用して整形する。
+- 成功レスポンスは `200 OK`、作成は `201 Created`、更新は `204 No Content` を原則とする。
+- エラーは `422`（バリデーション）、`404`（Not Found）、`401/403`（認証/権限）など適切なステータスを返す。
+- レスポンス構造は以下を基本形とする：
+
+```json
+{
+  "status": "success",
+  "message": "User created",
+  "data": {
+    "id": 1,
+    "name": "Yutaro"
+  }
+}
+```
+
+- 認証は `Bearer Token（JWT）` または `Sanctum` を使用（プロジェクト方針により選択）
+
